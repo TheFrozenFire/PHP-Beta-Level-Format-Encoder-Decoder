@@ -9,13 +9,13 @@
  *  PHP 4.3+ (5.3+ recommended)
  *  NBT class (https://github.com/TheFrozenFire/PHP-NBT-Decoder-Encoder)
  */
-class BLF extends NBT {
+class BLF {
 	public $header;
 
-	public function loadFile($filename) {
+	public function loadFile($filename, $readall = true) {
 		$fp = fopen($filename, "rb");
 		$this->readHeader($fp);
-		return true;
+		if($readall) foreach($this->header as $location) $this->readChunk($fp, $location); else return $fp;
 	}
 	
 	public function writeFile($filename) {
@@ -27,16 +27,16 @@ class BLF extends NBT {
 	}
 	
 	public function readHeader($fp) {
-		$header = array();
+		$this->header = array();
 		for($headerItem = 0; $headerItem < 1024; $headerItem++) {
 			$location = array();
 			fseek($fp, $headerItem * 4);
-			list(,$location["offset"]) = unpack("N", fread($fp, 3)); // Offset in file
-			if($location[0] == 0) continue; // Chunk isn't present
-			list(,$location["size"]) = fread($fp, 1); // Size
+			list(,$location["offset"]) = unpack("N", "\0".fread($fp, 3)); // Offset in file
+			if($location["offset"] == 0) continue; // Chunk isn't present
+			list(,$location["size"]) = unpack("c", fread($fp, 1)); // Size
 			fseek($fp, ($headerItem * 4) + 4096);
 			list(,$location["time"]) = unpack("N", fread($fp, 4)); // Modification timestamp
-			$header[$headerItem] = $location;
+			$this->header[$headerItem] = $location;
 		}
 	}
 	
@@ -50,17 +50,19 @@ class BLF extends NBT {
 		}
 	}
 	
-	public readChunk($fp, &$location) {
+	public function readChunk($fp, &$location) {
 		fseek($fp, $location["offset"]*4096);
 		list(,$length) = unpack("N", fread($fp, 4));
 		list(,$compression) = unpack("c", fread($fp, 1));
-		
-		$filter = stream_filter_prepend($fp, "zlib.inflate", STREAM_FILTER_READ);
-		
-		$this->traverseTag($fp, $this->root);
-		$location["chunk"] =& end($this->root);
-		
-		stream_filter_remove($filter);
+
+		$data = gzuncompress(stream_get_contents($fp, $length));
+		$temp = fopen("php://temp", "r+");
+		fwrite($temp, $data);
+		rewind($temp);
+		unset($data);
+
+		$nbt = new NBT();
+		$location["chunk"] = $nbt->loadFile($temp, null);
 	}
 	
 	public function writeChunk($fp, &$location) {
@@ -78,7 +80,7 @@ class BLF extends NBT {
 		$size = ftell($fp)-$start+1;
 		
 		fseek($fp, $start-4);
-		fwrite(pack("N", $size);
+		fwrite(pack("N", $size));
 		
 		$location["size"] = ceil($size / 4096);
 		fseek($fp, $location["offset"] + ($location["size"] * 4096));
