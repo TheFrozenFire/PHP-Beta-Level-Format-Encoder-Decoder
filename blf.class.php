@@ -68,20 +68,22 @@ class BLF {
 	public function writeChunk($fp, &$location) {
 		$location["offset"] = ftell($fp) / 4096;
 		fseek($fp, 4, SEEK_CUR);
-		
+
 		$start = ftell($fp);
 		fwrite(pack("c", 2));
-		
-		$filter = stream_filter_prepend($fp, "zlib.deflate", STREAM_FILTER_WRITE);
-		
-		$this->writeTag($fp, $location["chunk"]);
-		
-		stream_filter_remove($filter);
+
+		$temp = fopen("php://temp", "r+");
+		$nbt = new NBT();
+		$nbt->writeTag($temp, $location["chunk"]);
+		rewind($temp);
+		$compressed = gzcompress(stream_get_contents($temp)); // Round-about, yes, I know.
+		fclose($temp);
+		fwrite($fp, $compressed);
+
 		$size = ftell($fp)-$start+1;
-		
 		fseek($fp, $start-4);
 		fwrite(pack("N", $size));
-		
+
 		$location["size"] = ceil($size / 4096);
 		fseek($fp, $location["offset"] + ($location["size"] * 4096));
 	}
